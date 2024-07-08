@@ -9,35 +9,30 @@ from .model_io import ModelOutput
 
 
 class BaseModel(torch.nn.Module):
-    def __init__(self, args):
+    def __init__(self, args):                 # args包含了模型的超参数，如动作空间的大小、类别数量、隐藏状态的大小等。
         action_space = args.action_space
         self.num_cate = args.num_category
         resnet_embedding_sz = args.hidden_state_sz
         hidden_state_sz = args.hidden_state_sz
         super(BaseModel, self).__init__()
-
-        self.conv1 = nn.Conv2d(resnet_embedding_sz, 64, 1)
-        self.maxp1 = nn.MaxPool2d(2, 2)
-
-        self.detection_feature = nn.Linear(518, 49)
-
-        self.embed_action = nn.Linear(action_space, 10)
-
+                                                                        # 定义卷积层和全连接层
+        self.conv1 = nn.Conv2d(resnet_embedding_sz, 64, 1)                # 1x1卷积层，将输入特征通道数从resnet_embedding_sz变为64
+        self.maxp1 = nn.MaxPool2d(2, 2)                                   # 2x2最大池化层
+        self.detection_feature = nn.Linear(518, 49)                       # 全连接层，将检测特征的维度从518变为49
+        self.embed_action = nn.Linear(action_space, 10)                   # 全连接层，将动作嵌入从动作空间大小变为10
         pointwise_in_channels = 64 + self.num_cate + 10
+        self.pointwise = nn.Conv2d(pointwise_in_channels, 64, 1, 1)        # 1x1卷积层，输入通道数为64 + 类别数量 + 动作嵌入的通道数
 
-        self.pointwise = nn.Conv2d(pointwise_in_channels, 64, 1, 1)
-
-        self.lstm_input_sz = 7 * 7 * 64
-
-        self.hidden_state_sz = hidden_state_sz
-        self.lstm = nn.LSTM(self.lstm_input_sz, hidden_state_sz, 2)
+        self.lstm_input_sz = 7 * 7 * 64                                         # LSTM输入大小
+        self.hidden_state_sz = hidden_state_sz                                  # LSTM隐藏状态大小
+        self.lstm = nn.LSTM(self.lstm_input_sz, hidden_state_sz, 2)             # 两层LSTM
         # self.lstm_1 = nn.LSTMCell(self.lstm_input_sz, hidden_state_sz)
         # self.lstm_2 = nn.LSTMCell(hidden_state_sz, hidden_state_sz)
         num_outputs = action_space
-        self.critic_linear_1 = nn.Linear(hidden_state_sz, 64)
+        self.critic_linear_1 = nn.Linear(hidden_state_sz, 64)                   # 用于值网络的两层全连接层
         self.critic_linear_2 = nn.Linear(64, 1)
-        self.actor_linear = nn.Linear(hidden_state_sz, num_outputs)
-
+        self.actor_linear = nn.Linear(hidden_state_sz, num_outputs)             # 用于策略网络的全连接层
+                                                                                # 初始化各层的权重和偏置。weights_init是自定义的初始化函数，norm_col_init用于列初始化。
         self.apply(weights_init)
         relu_gain = nn.init.calculate_gain("relu")
         self.conv1.weight.data.mul_(relu_gain)
@@ -63,7 +58,7 @@ class BaseModel(torch.nn.Module):
 
         self.dropout = nn.Dropout(p=args.dropout_rate)
 
-    def embedding(self, state, target, action_embedding_input):
+    def embedding(self, state, target, action_embedding_input):                                # embedding函数将状态、目标和动作输入嵌入成特征向量
         target = torch.cat((target['appear'], target['info'], target['indicator']), dim=1)
 
         target = F.relu(self.detection_feature(target))
@@ -82,7 +77,7 @@ class BaseModel(torch.nn.Module):
 
         return out, image_embedding
 
-    def a3clstm(self, embedding, prev_hidden_h, prev_hidden_c):
+    def a3clstm(self, embedding, prev_hidden_h, prev_hidden_c):                  # a3clstm函数将嵌入特征输入LSTM，输出策略和价值
 
         embedding = embedding.reshape([1, 1, self.lstm_input_sz])
         output, (hx, cx) = self.lstm(embedding, (prev_hidden_h, prev_hidden_c))
